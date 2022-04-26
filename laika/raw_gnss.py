@@ -126,7 +126,7 @@ class GNSSMeasurement:
     return f"<GNSSMeasurement from {self.prn} at {time}>"
 
 
-def process_measurements(measurements, dog=None):
+def process_measurements(measurements, dog=None):# todo remove optional. Should always be used with dog
   proc_measurements = []
   for meas in measurements:
     if meas.process(dog):
@@ -232,11 +232,14 @@ def read_raw_ublox(report):
         observables_std['C1C'] = np.sqrt(i.pseudorangeStdev)*10
         if i.gnssId == 6:
           glonass_freq = i.glonassFrequencyIndex - 7
-          observables['D1C'] = -(constants.SPEED_OF_LIGHT / (constants.GLONASS_L1 + glonass_freq*constants.GLONASS_L1_DELTA)) * i.doppler
+          observables['D1C'] = constants.SPEED_OF_LIGHT / (constants.GLONASS_L1 + glonass_freq*constants.GLONASS_L1_DELTA)
         else:  # gnssId=0
           glonass_freq = np.nan
-          observables['D1C'] = -(constants.SPEED_OF_LIGHT / constants.GPS_L1) * i.doppler
-        observables_std['D1C'] = (constants.SPEED_OF_LIGHT / constants.GPS_L1) * i.dopplerStdev
+          observables['D1C'] = constants.SPEED_OF_LIGHT / constants.GPS_L1
+
+        observables_std['D1C'] = observables['D1C'] * i.dopplerStdev
+        observables['D1C'] *= -i.doppler
+
         observables['S1C'] = i.cno
         if i.trackingStatus.carrierPhaseValid:
           observables['L1C'] = i.carrierCycles
