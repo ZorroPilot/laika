@@ -18,7 +18,7 @@ MAX_DGPS_DISTANCE = 100_000  # in meters, because we're not barbarians
 
 class AstroDog:
   '''
-  auto_update: flag indicating whether laika should fetch files from web
+  use_internet: flag indicating whether laika should fetch files from web
   cache_dir:   directory where data files are downloaded to and cached
   pull_orbit:  flag indicating whether laika should fetch sp3 orbits
                  instead of nav files (orbits are more accurate)
@@ -28,12 +28,11 @@ class AstroDog:
 
   '''
 
-  def __init__(self, auto_update=True,
+  def __init__(self, use_internet=True,
                cache_dir='/tmp/gnss/',
                pull_orbit=True, dgps=False,
-               valid_const=['GPS', 'GLONASS'],
-               use_internet=True):
-    self.auto_update = auto_update
+               valid_const=['GPS', 'GLONASS']):
+    self.use_internet = use_internet
     self.cache_dir = cache_dir
     self.dgps = dgps
     self.dgps_delays = []
@@ -42,8 +41,6 @@ class AstroDog:
     self.valid_const = valid_const
     self.cached_ionex = None
     self.cached_dgps = None
-
-    self.use_internet = use_internet
 
     self.orbit_fetched_times = TimeRangeHolder()
     self.nav_fetched_times = TimeRangeHolder()
@@ -60,7 +57,7 @@ class AstroDog:
   def get_ionex(self, time):
     ionex = self._get_latest_valid_data(self.ionex_maps, self.cached_ionex, self.get_ionex_data, time)
     if ionex is None:
-      if self.auto_update:
+      if self.use_internet:
         raise RuntimeError("Pulled ionex, but still can't get valid for time " + str(time))
     else:
       self.cached_ionex = ionex
@@ -116,8 +113,11 @@ class AstroDog:
 
   def get_dgps_corrections(self, time, recv_pos):
     latest_data = self._get_latest_valid_data(self.dgps_delays, self.cached_dgps, self.get_dgps_data, time, recv_pos=recv_pos)
-    if latest_data is None and self.auto_update:
-      raise RuntimeError("Pulled dgps, but still can't get valid for time " + str(time))
+    if latest_data is None:
+      if self.use_internet:
+        raise RuntimeError("Pulled dgps, but still can't get valid for time " + str(time))
+    else:
+      self.cached_dgps = latest_data
     return latest_data
 
   def add_ephem(self, new_ephem, ephems):
