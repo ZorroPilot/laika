@@ -7,7 +7,7 @@ from .ephemeris import GLONASSEphemeris, GPSEphemeris, PolyEphemeris, parse_sp3_
 from .downloader import download_orbits, download_orbits_russia, download_nav, download_ionex, download_dcb
 from .downloader import download_cors_station
 from .trop import saast
-from .iono import parse_ionex
+from .iono import IonexMap, parse_ionex
 from .dcb import DCB, parse_dcbs
 from .gps_time import GPSTime
 from .dgps import get_closest_station_names, parse_dgps
@@ -36,10 +36,10 @@ class AstroDog:
     self.cache_dir = cache_dir
     self.dgps = dgps
     self.dgps_delays = []
-    self.ionex_maps = []
+    self.ionex_maps: List[IonexMap] = []
     self.pull_orbit = pull_orbit
     self.valid_const = valid_const
-    self.cached_ionex = None
+    self.cached_ionex: Optional[IonexMap] = None
     self.cached_dgps = None
 
     self.orbit_fetched_times = TimeRangeHolder()
@@ -54,7 +54,7 @@ class AstroDog:
     self.cached_nav: DefaultDict[str, Union[GPSEphemeris, GLONASSEphemeris, None]] = defaultdict(lambda: None)
     self.cached_dcb: DefaultDict[str, Optional[DCB]] = defaultdict(lambda: None)
 
-  def get_ionex(self, time):
+  def get_ionex(self, time) -> Optional[IonexMap]:
     ionex = self._get_latest_valid_data(self.ionex_maps, self.cached_ionex, self.get_ionex_data, time)
     if ionex is None:
       if self.use_internet:
@@ -282,18 +282,19 @@ class AstroDog:
     if el < 0.2:
       return None
 
-    if self.dgps and not no_dgps:
+    if self.use_internet and self.dgps and not no_dgps:
       return self._get_delay_dgps(prn, rcv_pos, time)
 
-    if not freq:
-      freq = self.get_frequency(prn, time, signal)
     ionex = self.get_ionex(time)
+    if not freq and ionex is not None:
+      freq = self.get_frequency(prn, time, signal)
     dcb = self.get_dcb(prn, time)
-    if ionex is None or dcb is None or freq is None:
+    # When using internet we expect all data or return None
+    if self.use_internet and (ionex is None or dcb is None or freq is None):
       return None
-    iono_delay = ionex.get_delay(rcv_pos, az, el, sat_pos, time, freq)
+    iono_delay = ionex.get_delay(rcv_pos, az, el, sat_pos, time, freq) if ionex is not None else 0.
     trop_delay = saast(rcv_pos, el)
-    code_bias = dcb.get_delay(signal)
+    code_bias = dcb.get_delay(signal) if dcb is not None else 0.
     return iono_delay + trop_delay + code_bias
 
   def _get_delay_dgps(self, prn, rcv_pos, time):
