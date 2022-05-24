@@ -34,22 +34,23 @@ class AstroDog:
                valid_const=['GPS', 'GLONASS']):
     self.use_internet = use_internet
     self.cache_dir = cache_dir
+
     self.dgps = dgps
-    self.dgps_delays = []
-    self.ionex_maps: List[IonexMap] = []
     self.pull_orbit = pull_orbit
     self.valid_const = valid_const
-    self.cached_ionex: Optional[IonexMap] = None
-    self.cached_dgps = None
 
     self.orbit_fetched_times = TimeRangeHolder()
     self.nav_fetched_times = TimeRangeHolder()
     self.dcbs_fetched_times = TimeRangeHolder()
 
+    self.dgps_delays = []
+    self.ionex_maps: List[IonexMap] = []
     self.orbits: DefaultDict[str, List[PolyEphemeris]] = defaultdict(list)
     self.nav: DefaultDict[str, List[Union[GPSEphemeris, GLONASSEphemeris]]] = defaultdict(list)
     self.dcbs: DefaultDict[str, List[DCB]] = defaultdict(list)
 
+    self.cached_ionex: Optional[IonexMap] = None
+    self.cached_dgps = None
     self.cached_orbit: DefaultDict[str, Optional[PolyEphemeris]] = defaultdict(lambda: None)
     self.cached_nav: DefaultDict[str, Union[GPSEphemeris, GLONASSEphemeris, None]] = defaultdict(lambda: None)
     self.cached_dcb: DefaultDict[str, Optional[DCB]] = defaultdict(lambda: None)
