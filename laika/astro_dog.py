@@ -1,4 +1,5 @@
 from collections import defaultdict
+from enum import Enum, auto
 from typing import DefaultDict, List, Optional, Union
 
 from .helpers import ConstellationId, get_constellation, get_closest, get_el_az, TimeRangeHolder
@@ -16,6 +17,11 @@ from . import constants
 MAX_DGPS_DISTANCE = 100_000  # in meters, because we're not barbarians
 
 
+class EphemData(Enum):
+  ORBIT = auto
+  NAV = auto
+
+
 class AstroDog:
   '''
   use_internet: flag indicating whether laika should fetch files from web
@@ -28,15 +34,15 @@ class AstroDog:
 
   '''
 
-  def __init__(self, use_internet=True,
+  def __init__(self, auto_update=True,
                cache_dir='/tmp/gnss/',
-               pull_orbit=True, dgps=False,
+               pull_ephems=(EphemData.ORBIT,), dgps=False,
                valid_const=['GPS', 'GLONASS']):
-    self.use_internet = use_internet
+    self.auto_update = auto_update
     self.cache_dir = cache_dir
 
     self.dgps = dgps
-    self.pull_orbit = pull_orbit
+    self.pull_ephem_types: List[EphemData] = pull_ephems
     self.valid_const = valid_const
 
     self.orbit_fetched_times = TimeRangeHolder()
@@ -58,7 +64,7 @@ class AstroDog:
   def get_ionex(self, time) -> Optional[IonexMap]:
     ionex: Optional[IonexMap] = self._get_latest_valid_data(self.ionex_maps, self.cached_ionex, self.get_ionex_data, time)
     if ionex is None:
-      if self.use_internet:
+      if self.auto_update:
         raise RuntimeError("Pulled ionex, but still can't get valid for time " + str(time))
     else:
       self.cached_ionex = ionex
@@ -89,7 +95,7 @@ class AstroDog:
     return result
 
   def get_navs(self, time):
-    if time not in self.nav_fetched_times and self.use_internet:
+    if time not in self.nav_fetched_times and self.auto_update:
       self.get_nav_data(time)
     return AstroDog._select_valid_temporal_items(self.nav, time, self.cached_nav)
 
@@ -115,19 +121,19 @@ class AstroDog:
   def get_dgps_corrections(self, time, recv_pos):
     latest_data = self._get_latest_valid_data(self.dgps_delays, self.cached_dgps, self.get_dgps_data, time, recv_pos=recv_pos)
     if latest_data is None:
-      if self.use_internet:
+      if self.auto_update:
         raise RuntimeError("Pulled dgps, but still can't get valid for time " + str(time))
     else:
       self.cached_dgps = latest_data
     return latest_data
 
-  def add_ephem(self, new_ephem, ephems):
-    prn = new_ephem.prn
-    # TODO make this check work
-    # for eph in ephems[prn]:
-    #   if eph.type == new_ephem.type and eph.epoch == new_ephem.epoch:
-    #     raise RuntimeError('Trying to add an ephemeris that is already there, something is wrong')
-    ephems[prn].append(new_ephem)
+  def add_ephems(self, new_ephems, ephems):
+    for e in new_ephems:
+      # TODO make this check work
+      # for eph in ephems[prn]:
+      #   if eph.type == new_ephem.type and eph.epoch == new_ephem.epoch:
+      #     raise RuntimeError('Trying to add an ephemeris that is already there, something is wrong')
+      ephems[e.prn].append(e)
 
   def get_nav_data(self, time):
     def download_and_parse(constellation, parse_rinex_nav_func):
@@ -141,39 +147,32 @@ class AstroDog:
     if 'GLONASS' in self.valid_const:
       fetched_ephems += download_and_parse(ConstellationId.GLONASS, parse_rinex_nav_msg_glonass)
 
-    for ephem in fetched_ephems:
-      self.add_ephem(ephem, self.nav)
+    self.add_ephems(fetched_ephems, self.nav)
 
     if len(fetched_ephems) != 0:
-      min_ephem = min(fetched_ephems, key=lambda e: e.epoch)
-      max_ephem = max(fetched_ephems, key=lambda e: e.epoch)
-      min_epoch = min_ephem.epoch - min_ephem.max_time_diff
-      max_epoch = max_ephem.epoch + max_ephem.max_time_diff
+      min_epoch, max_epoch = self.get_epoch_range(fetched_ephems)
       self.nav_fetched_times.add(min_epoch, max_epoch)
     else:
       begin_day = GPSTime(time.week, constants.SECS_IN_DAY * (time.tow // constants.SECS_IN_DAY))
       end_day = GPSTime(time.week, constants.SECS_IN_DAY * (1 + (time.tow // constants.SECS_IN_DAY)))
       self.nav_fetched_times.add(begin_day, end_day)
 
-  def get_orbit_data(self, time):
+  def download_parse_orbit_data(self, time):
     file_paths_sp3_ru = download_orbits_russia(time, cache_dir=self.cache_dir)
     ephems_sp3_ru = parse_sp3_orbits(file_paths_sp3_ru, self.valid_const)
     file_paths_sp3_us = download_orbits(time, cache_dir=self.cache_dir)
     ephems_sp3_us = parse_sp3_orbits(file_paths_sp3_us, self.valid_const)
-    ephems_sp3 = ephems_sp3_ru + ephems_sp3_us
+    return ephems_sp3_ru + ephems_sp3_us
+
+  def get_orbit_data(self, time):
+    ephems_sp3 = self.download_parse_orbit_data(time)
     if len(ephems_sp3) < 5:
       raise RuntimeError('No orbit data found on either servers')
 
-    for ephem in ephems_sp3:
-      self.add_ephem(ephem, self.orbits)
+    self.add_ephems(ephems_sp3, self.orbits)
 
     if len(ephems_sp3) != 0:
-      min_ephem = min(ephems_sp3, key=lambda e: e.epoch)
-      max_ephem = max(ephems_sp3, key=lambda e: e.epoch)
-
-      min_epoch = min_ephem.epoch - min_ephem.max_time_diff
-      max_epoch = max_ephem.epoch + max_ephem.max_time_diff
-
+      min_epoch, max_epoch = self.get_epoch_range(ephems_sp3)
       self.orbit_fetched_times.add(min_epoch, max_epoch)
 
   def get_dcb_data(self, time):
@@ -183,13 +182,15 @@ class AstroDog:
       self.dcbs[dcb.prn].append(dcb)
 
     if len(dcbs) != 0:
-      min_dcb = min(dcbs, key=lambda e: e.epoch)
-      max_dcb = max(dcbs, key=lambda e: e.epoch)
-
-      min_epoch = min_dcb.epoch - min_dcb.max_time_diff
-      max_epoch = max_dcb.epoch + max_dcb.max_time_diff
-
+      min_epoch, max_epoch = self.get_epoch_range(dcbs)
       self.dcbs_fetched_times.add(min_epoch, max_epoch)
+
+  def get_epoch_range(self, new_ephems):
+    min_ephem = min(new_ephems, key=lambda e: e.epoch)
+    max_ephem = max(new_ephems, key=lambda e: e.epoch)
+    min_epoch = min_ephem.epoch - min_ephem.max_time_diff
+    max_epoch = max_ephem.epoch + max_ephem.max_time_diff
+    return min_epoch, max_epoch
 
   def get_ionex_data(self, time):
     file_path_ionex = download_ionex(time, cache_dir=self.cache_dir)
@@ -222,18 +223,16 @@ class AstroDog:
   def get_sat_info(self, prn, time):
     if get_constellation(prn) not in self.valid_const:
       return None
-
-    if self.pull_orbit:
+    eph = None
+    if EphemData.ORBIT in self.pull_ephem_types:
       eph = self.get_orbit(prn, time)
-    else:
+    if eph is None and EphemData.NAV in self.pull_ephem_types:
       eph = self.get_nav(prn, time)
 
-    if eph:
-      return eph.get_sat_info(time)
-    return None
+    return eph.get_sat_info(time) if eph else None
 
   def get_all_sat_info(self, time):
-    if self.pull_orbit:
+    if EphemData.ORBIT in self.pull_ephem_types:
       ephs = self.get_orbits(time)
     else:
       ephs = self.get_navs(time)
@@ -290,7 +289,7 @@ class AstroDog:
       freq = self.get_frequency(prn, time, signal)
     dcb = self.get_dcb(prn, time)
     # When using internet we expect all data or return None
-    if self.use_internet and (ionex is None or dcb is None or freq is None):
+    if self.auto_update and (ionex is None or dcb is None or freq is None):
       return None
     iono_delay = ionex.get_delay(rcv_pos, az, el, sat_pos, time, freq) if ionex is not None else 0.
     trop_delay = saast(rcv_pos, el)
@@ -305,17 +304,18 @@ class AstroDog:
 
   def _get_latest_valid_data(self, data, latest_data, download_data_func, time, skip_download=False, recv_pos=None):
     def is_valid(latest_data):
-        if recv_pos is None:
-          return latest_data is not None and latest_data.valid(time)
-        else:
-          return latest_data is not None and latest_data.valid(time, recv_pos)
+      if recv_pos is None:
+        return latest_data is not None and latest_data.valid(time)
+      else:
+        return latest_data is not None and latest_data.valid(time, recv_pos)
+
     if is_valid(latest_data):
       return latest_data
 
     latest_data = get_closest(time, data, recv_pos=recv_pos)
     if is_valid(latest_data):
       return latest_data
-    if skip_download or not self.use_internet:
+    if skip_download or not self.auto_update:
       return None
     if recv_pos is not None:
       download_data_func(time, recv_pos)
