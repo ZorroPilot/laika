@@ -157,14 +157,14 @@ class AstroDog:
       end_day = GPSTime(time.week, constants.SECS_IN_DAY * (1 + (time.tow // constants.SECS_IN_DAY)))
       self.nav_fetched_times.add(begin_day, end_day)
 
-  def download_parse_orbit_data(self, time):
+  def download_parse_orbit_data(self, time: GPSTime):
     file_paths_sp3_ru = download_orbits_russia(time, cache_dir=self.cache_dir)
     ephems_sp3_ru = parse_sp3_orbits(file_paths_sp3_ru, self.valid_const)
     file_paths_sp3_us = download_orbits(time, cache_dir=self.cache_dir)
     ephems_sp3_us = parse_sp3_orbits(file_paths_sp3_us, self.valid_const)
     return ephems_sp3_ru + ephems_sp3_us
 
-  def get_orbit_data(self, time):
+  def get_orbit_data(self, time: GPSTime):
     ephems_sp3 = self.download_parse_orbit_data(time)
     if len(ephems_sp3) < 5:
       raise RuntimeError('No orbit data found on either servers')
