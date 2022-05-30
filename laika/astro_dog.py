@@ -1,4 +1,5 @@
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum, auto
 from typing import DefaultDict, List, Optional, Union
 
@@ -157,11 +158,26 @@ class AstroDog:
       end_day = GPSTime(time.week, constants.SECS_IN_DAY * (1 + (time.tow // constants.SECS_IN_DAY)))
       self.nav_fetched_times.add(begin_day, end_day)
 
-  def download_parse_orbit_data(self, time: GPSTime):
-    file_paths_sp3_ru = download_orbits_russia(time, cache_dir=self.cache_dir)
-    ephems_sp3_ru = parse_sp3_orbits(file_paths_sp3_ru, self.valid_const)
-    file_paths_sp3_us = download_orbits(time, cache_dir=self.cache_dir)
-    ephems_sp3_us = parse_sp3_orbits(file_paths_sp3_us, self.valid_const)
+  def download_parse_orbit_data(self, gps_time: GPSTime, skip_before_epoch=None) -> List[PolyEphemeris]:
+    def parse_orbits(file_futures):
+      # Checks most recent day first and stop when gps_time is found in ephems
+      ephems_sp3 = []
+      for f in file_futures:
+        # check if gps_time is in current list
+        if len(ephems_sp3) == 0 or ephems_sp3[0].epoch > gps_time:
+          file_path_sp3 = f.result()
+          if file_path_sp3:
+            ephems_sp3 = parse_sp3_orbits(file_path_sp3, self.valid_const, skip_before_epoch) + ephems_sp3
+      return ephems_sp3
+
+    time_steps = [gps_time + constants.SECS_IN_DAY, gps_time, gps_time - constants.SECS_IN_DAY]
+    with ThreadPoolExecutor() as executor:
+      futures_russia = [executor.submit(download_orbits_russia, t, self.cache_dir) for t in time_steps]
+      futures_orbits = [executor.submit(download_orbits, t, self.cache_dir) for t in time_steps]
+
+      ephems_sp3_ru = parse_orbits(futures_russia)
+      ephems_sp3_us = parse_orbits(futures_orbits)
+
     return ephems_sp3_ru + ephems_sp3_us
 
   def get_orbit_data(self, time: GPSTime):
