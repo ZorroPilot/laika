@@ -158,7 +158,8 @@ class AstroDog:
       end_day = GPSTime(time.week, constants.SECS_IN_DAY * (1 + (time.tow // constants.SECS_IN_DAY)))
       self.nav_fetched_times.add(begin_day, end_day)
 
-  def download_parse_orbit_data(self, gps_time: GPSTime, skip_before_epoch=None) -> List[PolyEphemeris]:
+  def download_parse_orbit_data(self, gps_time: GPSTime, skip_before_time: Optional[GPSTime] = None) -> List[PolyEphemeris]:
+    # skip before
     def parse_orbits(file_futures):
       # Checks most recent day first and stop when gps_time is found in ephems
       ephems_sp3 = []
@@ -167,7 +168,7 @@ class AstroDog:
         if len(ephems_sp3) == 0 or ephems_sp3[0].epoch > gps_time:
           file_path_sp3 = f.result()
           if file_path_sp3:
-            ephems_sp3 = parse_sp3_orbits(file_path_sp3, self.valid_const, skip_before_epoch) + ephems_sp3
+            ephems_sp3 = parse_sp3_orbits(file_path_sp3, self.valid_const, skip_before_time) + ephems_sp3
       return ephems_sp3
 
     time_steps = [gps_time + constants.SECS_IN_DAY, gps_time, gps_time - constants.SECS_IN_DAY]

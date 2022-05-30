@@ -278,7 +278,7 @@ class GPSEphemeris(Ephemeris):
     return pos, vel, clock_err, clock_rate_err
 
 
-def parse_sp3_orbits(file_name, SUPPORTED_CONSTELLATIONS, skip_before_time=None) -> List[PolyEphemeris]:
+def parse_sp3_orbits(file_name, SUPPORTED_CONSTELLATIONS, skip_before_time: Optional[GPSTime] = None) -> List[PolyEphemeris]:
   if skip_before_time is None:
     skip_before_time = GPSTime(0, 0)
   data: Dict[str, List] = {}
