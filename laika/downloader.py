@@ -9,7 +9,7 @@ import time
 import tempfile
 import socket
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from io import BytesIO
 
@@ -349,16 +349,27 @@ def download_orbits_russia_src(time, cache_dir, ephem_types):
   )
   t = time.as_datetime()
   folder_paths = []
+  filenames = []
   current_gps_time = GPSTime.from_datetime(datetime.utcnow())
-  filename = "Sta%i%i.sp3" % (time.week, time.day)
   if EphemerisType.FINAL_ORBIT in ephem_types and current_gps_time - time > 2 * SECS_IN_WEEK:
     folder_paths.append(t.strftime('%y%j/final/'))
+    filenames.append("Sta%i%i.sp3" % (time.week, time.day))
   if EphemerisType.RAPID_ORBIT in ephem_types:
     folder_paths.append(t.strftime('%y%j/rapid/'))
+  filenames.append("Sta%i%i.sp3" % (time.week, time.day))
   if EphemerisType.ULTRA_RAPID_ORBIT in ephem_types:
-    folder_paths.append(t.strftime('%y%j/ultra/'))
-  folder_file_names = [(folder_path, filename) for folder_path in folder_paths]
-  return download_and_cache_file_return_first_success(url_bases, folder_file_names, cache_subdir)
+    time_str = t.strftime("%y%m%d")
+    time_str_prev = (t-timedelta(days=1)).strftime("%y%m%d")
+    ultras = [f"Stark_1D_{time_str}18.sp3",
+              f"Stark_1D_{time_str}12.sp3",
+              f"Stark_1D_{time_str}06.sp3",
+              f"Stark_1D_{time_str}00.sp3",
+              f"Stark_1D_{time_str_prev}18.sp3",
+              f"Stark_1D_{time_str_prev}12.sp3",
+              f"Stark_1D_{time_str_prev}06.sp3"]
+    filenames.extend(ultras)
+    folder_paths.extend([t.strftime('%y%j/ultra/') for _ in ultras])
+  return download_and_cache_file_return_first_success(url_bases, list(zip(folder_paths, filenames)), cache_subdir)
 
 
 def download_ionex(time, cache_dir):
